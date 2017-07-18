@@ -43,7 +43,12 @@ SDL_MODE_SAMPLE = 0
 #Delay mode means to wait for sampleTime and the average after that time.
 SDL_MODE_DELAY = 1
 
-WIND_FACTOR = 2.400 
+# Number of Interupts per Rain Bucket and Anemometer Clicks
+SDL_INTERRUPT_CLICKS = 1
+SDL_RAIN_BUCKET_CLICKS = 2
+
+WIND_FACTOR = 2.400 / SDL_INTERRUPT_CLICKS
+
 
 # Helper Functions
 
@@ -61,8 +66,8 @@ def voltageToDegrees(value, defaultWindDirection):
     	# Note:  The original documentation for the wind vane says 16 positions.  Typically only recieve 8 positions.  And 315 degrees was wrong.
      
     	# For 5V, use 1.0.  For 3.3V use 0.66
-	ADJUST3OR5 = 0.66
-	PowerVoltage = 3.3
+	ADJUST3OR5 = 1.0
+	PowerVoltage = 5.0
 
 
 	if (fuzzyCompare(3.84 * ADJUST3OR5, value)):
@@ -169,8 +174,10 @@ class SDL_Pi_WeatherRack:
 		# when a falling edge is detected on port pinAnem, regardless of whatever   
 		# else is happening in the program, the function callback will be run  
 	
-		GPIO.add_event_detect(pinAnem, GPIO.RISING, callback=self.serviceInterruptAnem )  
-		GPIO.add_event_detect(pinRain, GPIO.RISING, callback=self.serviceInterruptRain )  
+		#GPIO.add_event_detect(pinAnem, GPIO.RISING, callback=self.serviceInterruptAnem)  
+                #GPIO.add_event_detect(pinRain, GPIO.RISING, callback=self.serviceInterruptRain)  
+		GPIO.add_event_detect(pinAnem, GPIO.RISING, callback=self.serviceInterruptAnem, bouncetime=40 )  
+                GPIO.add_event_detect(pinRain, GPIO.RISING, callback=self.serviceInterruptRain, bouncetime=40  )  
 
 		ADS1015 = 0x00  # 12-bit ADC
 		ADS1115 = 0x01  # 16-bit ADC
@@ -193,15 +200,11 @@ class SDL_Pi_WeatherRack:
 			value = self.ads1015.readRaw(1, self.gain, self.sps) # AIN1 wired to wind vane on WeatherPiArduino
 
 			# now figure out if it is an ADS1015 or ADS1115
-			print "value="
-			print format(value, '#04X')
 			if ((0x0F & value) == 0):
 				config.ADS1015_Present = True
 				config.ADS1115_Present = False
 				# check again (1 out 16 chance of zero)
 				value = self.ads1015.readRaw(0, self.gain, self.sps) # AIN1 wired to wind vane on WeatherPiArduino
-				print "value2="
-				print format(value, '#04X')
 				if ((0x0F & value) == 0):
 					config.ADS1015_Present = True
 					config.ADS1115_Present = False
@@ -220,6 +223,7 @@ class SDL_Pi_WeatherRack:
   	 		print "Type Error"
     			config.ADS1015_Present = False
     			config.ADS1115_Present = False
+
 
 		SDL_Pi_WeatherRack._ADMode = ADMode
 
@@ -285,7 +289,7 @@ class SDL_Pi_WeatherRack:
  
       			SDL_Pi_WeatherRack._currentWindSpeed = (float(SDL_Pi_WeatherRack._currentWindCount)/float(timeSpan)) * WIND_FACTOR*1000000.0
 
-			#print "SDL_CWS = %f, SDL_Pi_WeatherRack._shortestWindTime = %i, CWCount=%i TPS=%f" % (SDL_Pi_WeatherRack._currentWindSpeed,SDL_Pi_WeatherRack._shortestWindTime, SDL_Pi_WeatherRack._currentWindCount, float(SDL_Pi_WeatherRack._currentWindCount)/float(SDL_Pi_WeatherRack._sampleTime)) 
+			print "SDL_CWS = %f, SDL_Pi_WeatherRack._shortestWindTime = %i, CWCount=%i TPS=%f" % (SDL_Pi_WeatherRack._currentWindSpeed,SDL_Pi_WeatherRack._shortestWindTime, SDL_Pi_WeatherRack._currentWindCount, float(SDL_Pi_WeatherRack._currentWindCount)/float(SDL_Pi_WeatherRack._sampleTime)) 
 
       			SDL_Pi_WeatherRack._currentWindCount = 0
       
@@ -307,7 +311,7 @@ class SDL_Pi_WeatherRack:
 	#def get current values
 
 	def get_current_rain_total(self):
-        	rain_amount = 0.2794 * float(SDL_Pi_WeatherRack._currentRainCount)
+        	rain_amount = 0.2794 * float(SDL_Pi_WeatherRack._currentRainCount)/SDL_RAIN_BUCKET_CLICKS
         	SDL_Pi_WeatherRack._currentRainCount = 0;
 		return rain_amount;
 
@@ -351,19 +355,21 @@ class SDL_Pi_WeatherRack:
   		currentTime= (micros()-SDL_Pi_WeatherRack._lastWindTime);
 
   		SDL_Pi_WeatherRack._lastWindTime=micros();
-
-  		if(currentTime>1000):   # debounce
+  		if(currentTime>4000):   # debounce
      			SDL_Pi_WeatherRack._currentWindCount = SDL_Pi_WeatherRack._currentWindCount+1
 
      			if(currentTime<SDL_Pi_WeatherRack._shortestWindTime):
      				SDL_Pi_WeatherRack._shortestWindTime=currentTime;
- 
 
+		else:
+ 
+			print "currentTime=%i"%currentTime
+			print "DEBOUNCE-count=%i" % SDL_Pi_WeatherRack._currentWindCount
 
 
 	def serviceInterruptRain(self,channel):
 		
-		#print "Rain Interrupt Service Routine"
+		print "Rain Interrupt Service Routine"
 
   		currentTime=(micros()-SDL_Pi_WeatherRack._lastRainTime);
 
@@ -373,3 +379,6 @@ class SDL_Pi_WeatherRack:
     			if(currentTime<SDL_Pi_WeatherRack._currentRainMin):
      				SDL_Pi_WeatherRack._currentRainMin=currentTime;
 
+
+        def returnInterruptClicks(self):
+		return SDL_INTERRUPT_CLICKS
